@@ -18,7 +18,8 @@ struct PageLink: Codable, Identifiable, Hashable {
     var id = UUID()
     let text: String
     let href: String
-    enum CodingKeys: String, CodingKey { case text, href }
+    var subtitle: String? = nil
+    enum CodingKeys: String, CodingKey { case text, href, subtitle }
 }
 
 struct PageData: Codable, Hashable {
