@@ -41,7 +41,7 @@ struct MainTabs: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { AppTabBar(selection: $tab) }
+        .overlay(alignment: .bottom) { AppTabBar(selection: $tab) }
         .onChange(of: tab) { newValue in visited.insert(newValue) }
     }
 
@@ -57,43 +57,49 @@ struct MainTabs: View {
     }
 }
 
-// Flat, full-width bar: pure black, hairline on top, accent line above the selected tab.
+// Floating "liquid glass" bar. On iOS 26 (built with Xcode 26) it uses the real glassEffect;
+// otherwise it falls back to a frosted material that looks similar.
 struct AppTabBar: View {
     @Binding var selection: AppTab
+    @Namespace private var ns
 
     var body: some View {
-        VStack(spacing: 0) {
-            Hairline()
-            HStack(spacing: 0) {
-                ForEach(AppTab.allCases) { tab in
-                    let selected = selection == tab
-                    Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        selection = tab
-                    } label: {
-                        VStack(spacing: 4) {
-                            Rectangle()
-                                .fill(selected ? Theme.accent : Color.clear)
-                                .frame(width: 22, height: 2)
-                                .clipShape(Capsule())
-                            Image(systemName: tab.icon).font(.system(size: 18, weight: .semibold))
-                            Text(tab.title)
-                                .font(.system(size: 10, weight: .semibold))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                        }
-                        .foregroundColor(selected ? Theme.accent : Theme.muted)
-                        .frame(maxWidth: .infinity)
-                        .padding(.bottom, 4)
-                        .contentShape(Rectangle())
+        HStack(spacing: 2) {
+            ForEach(AppTab.allCases) { tab in
+                let selected = selection == tab
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { selection = tab }
+                } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: tab.icon).font(.system(size: 18, weight: .semibold))
+                        Text(tab.title)
+                            .font(.system(size: 10, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(tab.title)
+                    .foregroundColor(selected ? Theme.accent : Theme.txt.opacity(0.65))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background {
+                        if selected {
+                            Capsule()
+                                .fill(Theme.accent.opacity(0.16))
+                                .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.35), lineWidth: 0.8))
+                                .matchedGeometryEffect(id: "sel", in: ns)
+                        }
+                    }
+                    .contentShape(Capsule())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(tab.title)
             }
-            .padding(.top, 6)
         }
-        .background(Theme.bg.ignoresSafeArea(edges: .bottom))
+        .padding(6)
+        .liquidGlass(in: Capsule())
+        .shadow(color: .black.opacity(0.6), radius: 14, y: 6)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
     }
 }
 
