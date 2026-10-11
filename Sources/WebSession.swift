@@ -272,11 +272,14 @@ enum JS {
         var rows=[];
         Array.prototype.forEach.call(tb.rows, function(tr){
           for(var i=0;i<tr.cells.length;i++){ if(tr.cells[i].querySelector('table')) return; }
-          var cells=[];
-          Array.prototype.forEach.call(tr.cells, function(c){cells.push(t(c));});
+          var cells=[], lines=[];
+          Array.prototype.forEach.call(tr.cells, function(c){
+            cells.push(t(c));
+            lines.push(((c.innerText||c.textContent||'')+'').split(/\n+/).map(function(x){return x.replace(/\s+/g,' ').trim();}).filter(function(x){return x.length>0;}));
+          });
           if(!cells.length) return;
           var a=tr.querySelector('a[href]');
-          rows.push({cells:cells, href:(a && ok(a.href))? a.href : null});
+          rows.push({cells:cells, lines:lines, href:(a && ok(a.href))? a.href : null});
         });
         if(rows.length){
           var cap=tb.querySelector('caption');
