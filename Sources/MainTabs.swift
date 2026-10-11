@@ -57,66 +57,95 @@ struct MainTabs: View {
     }
 }
 
-// Floating liquid-glass bar with a sliding selection lens.
-// Tap a tab, or press and drag across the bar and the lens follows your finger.
-// On iOS 26 (built with Xcode 26) the bar is real glass (glassEffect, interactive);
-// older systems get a frosted-material fallback.
+// Floating liquid-glass tab bar with a glass "lens" that follows your finger.
+// Press and drag: the lens glides continuously and magnifies slightly; on release it settles on the nearest tab.
+// Tapping glides the lens to that tab. Real glass on iOS 26 (Xcode 26 build), frosted fallback otherwise.
 struct AppTabBar: View {
     @Binding var selection: AppTab
-    private let pad: CGFloat = 5
+    @State private var dragX: CGFloat? = nil   // finger x while pressing, nil at rest
+    @State private var lastIdx = 0
+    private let pad: CGFloat = 6
+
+    private func index(at x: CGFloat, itemW: CGFloat) -> Int {
+        min(max(Int((x - pad) / itemW), 0), AppTab.allCases.count - 1)
+    }
 
     var body: some View {
         GeometryReader { geo in
-            let count = AppTab.allCases.count
-            let itemW = (geo.size.width - pad * 2) / CGFloat(count)
+            let count = CGFloat(AppTab.allCases.count)
+            let itemW = (geo.size.width - pad * 2) / count
+            let lensH = geo.size.height - pad * 2
+            let restX = pad + CGFloat(selection.rawValue) * itemW
+            let lensX: CGFloat = {
+                guard let d = dragX else { return restX }
+                return min(max(d - itemW / 2, pad), geo.size.width - pad - itemW)
+            }()
+            let active = dragX != nil ? index(at: lensX + itemW / 2, itemW: itemW) : selection.rawValue
 
-            ZStack(alignment: .leading) {
-                // sliding lens
-                Capsule()
-                    .fill(LinearGradient(colors: [Theme.accent.opacity(0.30), Theme.accent.opacity(0.10)],
-                                         startPoint: .top, endPoint: .bottom))
-                    .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.45), lineWidth: 0.8))
-                    .frame(width: itemW, height: geo.size.height - pad * 2)
-                    .offset(x: pad + CGFloat(selection.rawValue) * itemW)
+            GlassGroup {
+                ZStack(alignment: .leading) {
+                    // the bar
+                    GlassCapsule(interactive: true)
+                        .frame(width: geo.size.width, height: geo.size.height)
 
-                HStack(spacing: 0) {
-                    ForEach(AppTab.allCases) { tab in
-                        let selected = selection == tab
-                        VStack(spacing: 3) {
-                            Image(systemName: tab.icon).font(.system(size: 18, weight: .semibold))
-                            Text(tab.title)
-                                .font(.system(size: 10, weight: .semibold))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
+                    // the sliding lens
+                    GlassCapsule(tint: Color.black.opacity(0.28))
+                        .frame(width: itemW, height: lensH)
+                        .scaleEffect(dragX != nil ? 1.12 : 1)
+                        .offset(x: lensX)
+
+                    // tabs
+                    HStack(spacing: 0) {
+                        ForEach(AppTab.allCases) { tab in
+                            let on = active == tab.rawValue
+                            VStack(spacing: 3) {
+                                Image(systemName: tab.icon).font(.system(size: 21, weight: .semibold))
+                                Text(tab.title)
+                                    .font(.system(size: 10.5, weight: .semibold))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+                            }
+                            .foregroundColor(on ? Theme.accent : Theme.txt.opacity(0.85))
+                            .frame(width: itemW, height: geo.size.height)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(tab.title)
+                            .accessibilityAddTraits(selection == tab ? [.isButton, .isSelected] : .isButton)
                         }
-                        .foregroundColor(selected ? Theme.accent : Theme.txt.opacity(0.65))
-                        .frame(width: itemW, height: geo.size.height)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(tab.title)
-                        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
                     }
+                    .padding(.horizontal, pad)
+                    .animation(.easeOut(duration: 0.15), value: active)
                 }
-                .padding(.horizontal, pad)
             }
-            .frame(width: geo.size.width, height: geo.size.height)
             .contentShape(Capsule())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { v in
-                        let idx = min(max(Int((v.location.x - pad) / itemW), 0), count - 1)
-                        if let t = AppTab(rawValue: idx), t != selection {
+                        let i = index(at: v.location.x, itemW: itemW)
+                        if dragX == nil {
+                            lastIdx = selection.rawValue
+                            withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) { dragX = v.location.x }
+                        } else {
+                            withAnimation(.interactiveSpring(response: 0.18, dampingFraction: 0.88)) { dragX = v.location.x }
+                        }
+                        if i != lastIdx {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            withAnimation(.spring(response: 0.38, dampingFraction: 0.72)) { selection = t }
+                            lastIdx = i
+                        }
+                    }
+                    .onEnded { v in
+                        let i = index(at: v.location.x, itemW: itemW)
+                        withAnimation(.spring(response: 0.5, dampingFraction: 0.76)) {
+                            if let t = AppTab(rawValue: i) { selection = t }
+                            dragX = nil
                         }
                     }
             )
         }
-        .frame(height: 62)
-        .liquidGlass(in: Capsule())
-        .shadow(color: .black.opacity(0.6), radius: 14, y: 6)
-        .padding(.horizontal, 16)
+        .frame(height: 68)
+        .shadow(color: .black.opacity(0.55), radius: 16, y: 8)
+        .padding(.horizontal, 14)
         .padding(.bottom, 4)
-        .offset(y: 10)   // sits a little lower, closer to the home indicator
+        .offset(y: 10)   // slightly lower
     }
 }
 
