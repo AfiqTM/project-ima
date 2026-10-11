@@ -308,12 +308,25 @@ enum JS {
       function tileInfo(a){
         var inner=a.querySelector('h1,h2,h3,h4,h5');
         if(inner){ var p0=a.querySelector('p'); return {title:t(inner), sub:p0? t(p0):''}; }
+        var generic=/click here|register here|more info|read more|^here$/i;
         var el=a.parentElement;
         for(var i=0;i<6 && el && el!==root;i++){
+          if(el.querySelectorAll('a[href]').length>1) break;
           var h=el.querySelector('h1,h2,h3,h4,h5');
-          if(h && el.querySelectorAll('a[href]').length<=1){
+          if(h && !a.contains(h)){
             var p=el.querySelector('p');
             return {title:t(h), sub:p? t(p):''};
+          }
+          var all=el.querySelectorAll('*');
+          for(var j=0;j<all.length;j++){
+            var n=all[j];
+            if(n.closest('a')) continue;
+            if(Array.prototype.some.call(n.children,function(c){return c.tagName!=='BR';})) continue;
+            if(/^(I|SVG|PATH|IMG|SCRIPT|STYLE|BUTTON)$/i.test(n.tagName)) continue;
+            var cls=(n.className && n.className.baseVal!==undefined)? n.className.baseVal : (n.className||'');
+            if(/icon|fa-|material|glyph/i.test(cls)) continue;
+            var s=t(n);
+            if(s.length>=3 && !generic.test(s)) return {title:s, sub:''};
           }
           el=el.parentElement;
         }
