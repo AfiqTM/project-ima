@@ -4,13 +4,17 @@ import WebKit
 enum SessionError: LocalizedError {
     case notLoggedIn
     case badData
-    case notFound(String)
+    case notFound(String, [String])
+    case external
 
     var errorDescription: String? {
         switch self {
         case .notLoggedIn: return "Your session has expired. Please sign in again."
         case .badData: return "The page was loaded but its content couldn't be read."
-        case .notFound(let what): return "Couldn't find the “\(what)” page in the i-Ma'luum menu."
+        case .notFound(let what, let seen):
+            let list = seen.prefix(25).joined(separator: ", ")
+            return "Couldn't find “\(what)” in the i-Ma'luum menu. Menu entries seen (\(seen.count)): \(list.isEmpty ? "none" : list)"
+        case .external: return "This link opens outside i-Ma'luum."
         }
     }
 }
@@ -87,6 +91,7 @@ final class WebSession: NSObject, ObservableObject, WKNavigationDelegate {
     // MARK: Fetching
 
     func fetch(_ url: URL) async throws -> PageData {
+        guard url.host?.hasSuffix("imaluum.iium.edu.my") == true else { throw SessionError.external }
         try await acquire()
         defer { busy = false }
         attachWorker()
@@ -103,23 +108,26 @@ final class WebSession: NSObject, ObservableObject, WKNavigationDelegate {
     /// Finds a page URL from the site's own menu by link text (so URLs never need hard-coding).
     func link(for keys: [String]) async throws -> URL {
         if menu.isEmpty { menu = try await fetchMenu() }
-        let lowered = keys.map { $0.lowercased() }
-        for k in lowered {
-            if let l = menu.first(where: { $0.text.lowercased() == k }), let u = URL(string: l.href) { return u }
+        func norm(_ x: String) -> String { x.lowercased().filter { $0.isLetter || $0.isNumber } }
+        let wanted = keys.map(norm)
+        for k in wanted {
+            if let l = menu.first(where: { norm($0.text) == k }), let u = URL(string: l.href) { return u }
         }
-        for k in lowered {
-            if let l = menu.first(where: { $0.text.lowercased().contains(k) }), let u = URL(string: l.href) { return u }
+        for k in wanted {
+            if let l = menu.first(where: { norm($0.text).contains(k) }), let u = URL(string: l.href) { return u }
         }
-        throw SessionError.notFound(keys.first ?? "page")
+        let seen = menu.map { $0.text }
+        menu = []   // force a fresh read on retry
+        throw SessionError.notFound(keys.first ?? "page", seen)
     }
 
     private func fetchMenu() async throws -> [PageLink] {
         try await acquire()
         defer { busy = false }
         attachWorker()
-        try await load(Endpoints.base)
+        try await load(Endpoints.schedule)
         try ensureLoggedIn()
-        try await Task.sleep(nanoseconds: 500_000_000)
+        await waitForContent()
         let result = try await worker.evaluateJavaScript(JS.menuLinks)
         guard let s = result as? String, let data = s.data(using: .utf8) else { throw SessionError.badData }
         return try JSONDecoder().decode([PageLink].self, from: data)
