@@ -37,8 +37,8 @@ struct ExamsView: View {
                 .padding(.top, 8)
                 .padding(.bottom, tabBarInset)
             }
-            .refreshable { await current.load() }
-            .task(id: seg) { await current.load() }
+            .refreshable { await current.loadResilient() }
+            .task(id: seg) { await current.loadResilient() }
             .screenBackground()
             .toolbar(.hidden, for: .navigationBar)
         }
@@ -111,11 +111,11 @@ struct SimplePageView: View {
                 .padding(.top, 8)
                 .padding(.bottom, tabBarInset)
             }
-            .refreshable { await vm.load() }
+            .refreshable { await vm.loadResilient() }
             .task {
                 // Fetch the extra link in its own task so it neither waits for the page load nor gets cancelled with it.
                 Task { await loadExtra() }
-                await vm.load()
+                await vm.loadResilient()
             }
             .onChange(of: vm.page) { _ in
                 if extraLink == nil { Task { await loadExtra() } }
@@ -150,8 +150,8 @@ struct DetailPageView: View {
             .padding(.top, 8)
             .padding(.bottom, tabBarInset)
         }
-        .refreshable { await vm.load() }
-        .task { await vm.load() }
+        .refreshable { await vm.loadResilient() }
+        .task { await vm.loadResilient() }
         .screenBackground()
         .navigationTitle("Details")
         .navigationBarTitleDisplayMode(.inline)
@@ -198,7 +198,7 @@ struct PageContent: View {
             }
             if let e = vm.errorMessage {
                 ErrorPanel(message: e,
-                           retry: { Task { await vm.load() } },
+                           retry: { Task { await vm.loadResilient() } },
                            openWeb: { showWeb = true })
             }
             if vm.isOffline { OfflineNotice() }
@@ -207,7 +207,7 @@ struct PageContent: View {
                 HStack {
                     Spacer()
                     SessionMenu(links: page.dropdown) { url in
-                        Task { await vm.load(url: url) }
+                        Task { await vm.loadResilient(url: url) }
                     }
                 }
                 let summaries = page.tables.flatMap { $0.rows }.compactMap { SummaryParser.parse($0) }
