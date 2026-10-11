@@ -72,10 +72,13 @@ struct SegmentBar: View {
 
 struct SimplePageView: View {
     let title: String
+    let extra: (title: String, keys: [String])?
     @StateObject private var vm: PageViewModel
+    @State private var extraURL: URL?
 
-    init(title: String, keys: [String]) {
+    init(title: String, keys: [String], extra: (title: String, keys: [String])? = nil) {
         self.title = title
+        self.extra = extra
         _vm = StateObject(wrappedValue: PageViewModel { try await WebSession.shared.link(for: keys) })
     }
 
@@ -85,13 +88,21 @@ struct SimplePageView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     ScreenHeader(title: title, subtitle: nil)
                     PageContent(vm: vm)
+                    if let e = extra, let url = extraURL {
+                        LinkRow(text: e.title, subtitle: nil, url: url, tile: false)
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
             }
             .refreshable { await vm.load() }
-            .task { await vm.load() }
+            .task {
+                await vm.load()
+                if let e = extra, extraURL == nil, WebSession.shared.state != .demo {
+                    extraURL = try? await WebSession.shared.link(for: e.keys)
+                }
+            }
             .amoled()
             .toolbar(.hidden, for: .navigationBar)
         }
