@@ -5,6 +5,8 @@ struct ClassesView: View {
     @State private var day: Weekday = .today
     @State private var showWeb = false
     @AppStorage(UserName.key) private var fullName = ""
+    @State private var editingName = false
+    @State private var nameDraft = ""
 
     private var classes: [ClassSession] {
         guard let page = vm.page, let t = TimetableParser.table(in: page) else { return [] }
@@ -28,6 +30,8 @@ struct ClassesView: View {
             VStack(alignment: .leading, spacing: 20) {
                 HStack(alignment: .top) {
                     GreetingTitle(name: UserName.shortName(fullName), subtitle: vm.page?.heading)
+                        .contentShape(Rectangle())
+                        .onTapGesture { nameDraft = UserName.shortName(fullName); editingName = true }
                     SessionMenu(links: vm.page?.dropdown ?? []) { url in
                         Task { await vm.load(url: url) }
                     }
@@ -70,7 +74,7 @@ struct ClassesView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
-            .padding(.bottom, 24)
+            .padding(.bottom, tabBarInset)
         }
         .refreshable { await vm.load() }
         .task {
@@ -78,6 +82,16 @@ struct ClassesView: View {
             await vm.load()
         }
         .screenBackground()
+        .onChange(of: vm.page) { page in
+            if fullName.isEmpty, let t = page?.text, let n = UserName.extract(from: t) { UserName.save(n) }
+        }
+        .alert("Your name", isPresented: $editingName) {
+            TextField("e.g. Muhammad Afiq", text: $nameDraft)
+            Button("Save") { UserName.save(nameDraft) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Shown in the greeting. Tap the greeting any time to change it.")
+        }
         .sheet(isPresented: $showWeb) { WebSheet(url: Endpoints.schedule) }
     }
 
