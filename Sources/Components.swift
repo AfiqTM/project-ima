@@ -203,3 +203,95 @@ enum UserName {
         if !n.isEmpty { UserDefaults.standard.set(n, forKey: key) }
     }
 }
+
+
+extension UserName {
+    /// "MUHAMMAD AFIQ BIN ABDUL" -> "Muhammad Afiq"
+    static func shortName(_ full: String) -> String {
+        full.split(separator: " ").prefix(2).map { String($0).capitalized }.joined(separator: " ")
+    }
+}
+
+// "Hello," in muted text, the name in bold accent.
+struct GreetingTitle: View {
+    let name: String
+    var subtitle: String? = nil
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            (Text(name.isEmpty ? "Hello" : "Hello, ").foregroundColor(Theme.muted)
+             + Text(name).foregroundColor(Theme.accent).bold())
+                .font(.system(size: 28))
+            if let s = subtitle, !s.isEmpty {
+                Text(s).font(.system(size: 13)).foregroundColor(Theme.muted)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Reads "Hello, <name>" from the logged-in i-Ma'luum page (shares the login cookies)
+
+import WebKit
+
+final class NameFetcher: NSObject, WKNavigationDelegate {
+    static let shared = NameFetcher()
+
+    private var web: WKWebView?
+    private var running = false
+    private var urls: [URL] = []
+    private var attempts = 0
+
+    func fetchIfNeeded() {
+        guard !running, (UserDefaults.standard.string(forKey: UserName.key) ?? "").isEmpty else { return }
+        running = true
+        urls = [Endpoints.base, Endpoints.schedule]
+        loadNext()
+    }
+
+    private func loadNext() {
+        guard !urls.isEmpty else { finish(); return }
+        attempts = 0
+        let cfg = WKWebViewConfiguration()
+        cfg.websiteDataStore = .default()
+        let w = WKWebView(frame: .zero, configuration: cfg)
+        w.navigationDelegate = self
+        web = w
+        w.load(URLRequest(url: urls.removeFirst()))
+    }
+
+    private func finish() {
+        web = nil
+        running = false
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        probe(webView)
+    }
+
+    private func probe(_ w: WKWebView) {
+        let js = #"""
+        (function(){
+          var t = document.body ? document.body.innerText : '';
+          var m = t.match(/Hello,?\s*([^\n\r]+)/i);
+          return m ? m[1].trim() : '';
+        })()
+        """#
+        w.evaluateJavaScript(js) { [weak self, weak w] result, _ in
+            guard let self = self, let w = w, self.web === w else { return }
+            if let name = result as? String, !name.isEmpty, name.count < 80 {
+                UserName.save(name)
+                self.finish()
+                return
+            }
+            self.attempts += 1
+            if self.attempts < 4 {
+                // the page may still be rendering
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self, weak w] in
+                    if let self = self, let w = w, self.web === w { self.probe(w) }
+                }
+            } else {
+                self.loadNext()
+            }
+        }
+    }
+}
