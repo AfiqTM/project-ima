@@ -197,6 +197,20 @@ enum UserName {
         return words.isEmpty ? "Hello" : "Hello, " + words.joined(separator: " ")
     }
 
+    /// Finds a name in already-scraped page text ("Hello, Name ..." or an all-caps "... BIN/BINTI ..." line).
+    static func extract(from text: String) -> String? {
+        if let r = text.range(of: #"Hello,?\s*([^\n\r]+)"#, options: [.regularExpression, .caseInsensitive]) {
+            let m = String(text[r]).replacingOccurrences(of: #"^Hello,?\s*"#, with: "", options: [.regularExpression, .caseInsensitive])
+            if !m.isEmpty, m.count < 80 { return m }
+        }
+        for line in text.components(separatedBy: .newlines) {
+            let l = line.trimmingCharacters(in: .whitespaces)
+            if l.count < 80, l.range(of: #"^[A-Z][A-Z'.@/ -]+$"#, options: .regularExpression) != nil,
+               l.range(of: #"\b(BIN|BINTI|BT|A/L|A/P)\b"#, options: .regularExpression) != nil { return l }
+        }
+        return nil
+    }
+
     /// Call this wherever the app learns the student's name.
     static func save(_ name: String) {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -253,7 +267,7 @@ final class NameFetcher: NSObject, WKNavigationDelegate {
         attempts = 0
         let cfg = WKWebViewConfiguration()
         cfg.websiteDataStore = .default()
-        let w = WKWebView(frame: .zero, configuration: cfg)
+        let w = WKWebView(frame: CGRect(x: 0, y: 0, width: 1280, height: 900), configuration: cfg)
         w.navigationDelegate = self
         web = w
         w.load(URLRequest(url: urls.removeFirst()))
@@ -271,9 +285,36 @@ final class NameFetcher: NSObject, WKNavigationDelegate {
     private func probe(_ w: WKWebView) {
         let js = #"""
         (function(){
-          var t = document.body ? document.body.innerText : '';
+          function norm(s){ return (s||'').replace(/\s+/g,' ').trim(); }
+          function ok(s){
+            s = norm(s);
+            return (s.length>=6 && s.length<80 && s.indexOf(' ')>0 && /^[A-Z][A-Z'.@\/ -]+$/.test(s)) ? s : null;
+          }
+          function own(e){
+            var t='';
+            for (var k=0;k<e.childNodes.length;k++){ if (e.childNodes[k].nodeType===3) t+=e.childNodes[k].nodeValue; }
+            return t;
+          }
+          // 1) the name in the top bar (upper-right, next to the avatar): last all-caps text in nav/header
+          var scopes = document.querySelectorAll('nav, header, .navbar, .main-header, .topbar, .app-header');
+          for (var i=0;i<scopes.length;i++){
+            var els = scopes[i].querySelectorAll('*');
+            for (var j=els.length-1;j>=0;j--){
+              var v = ok(own(els[j]));
+              if (v) return v;
+            }
+          }
+          // 2) "Hello, Name" anywhere
+          var t = document.body ? (document.body.textContent || '') : '';
           var m = t.match(/Hello,?\s*([^\n\r]+)/i);
-          return m ? m[1].trim() : '';
+          if (m && m[1].trim()) return norm(m[1]);
+          // 3) first all-caps line containing BIN / BINTI etc.
+          var lines = t.split(/\n/);
+          for (var n=0;n<lines.length;n++){
+            var L = ok(lines[n]);
+            if (L && /\b(BIN|BINTI|BT|A\/L|A\/P)\b/.test(L)) return L;
+          }
+          return '';
         })()
         """#
         w.evaluateJavaScript(js) { [weak self, weak w] result, _ in
@@ -293,5 +334,38 @@ final class NameFetcher: NSObject, WKNavigationDelegate {
                 self.loadNext()
             }
         }
+    }
+}
+
+
+// MARK: - Liquid glass
+
+/// Space to leave at the bottom of scrolling screens so content clears the floating tab bar.
+let tabBarInset: CGFloat = 96
+
+extension View {
+    @ViewBuilder
+    func liquidGlass<S: InsettableShape>(in shape: S) -> some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            self.glassEffect(.regular.interactive(), in: shape)
+        } else {
+            self.frostedGlass(in: shape)
+        }
+        #else
+        self.frostedGlass(in: shape)
+        #endif
+    }
+
+    func frostedGlass<S: InsettableShape>(in shape: S) -> some View {
+        self
+            .background(.ultraThinMaterial, in: shape)
+            .background(shape.fill(Color.white.opacity(0.04)))
+            .overlay(
+                shape.strokeBorder(
+                    LinearGradient(colors: [Color.white.opacity(0.35), Color.white.opacity(0.06), Color.white.opacity(0.18)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing),
+                    lineWidth: 0.8)
+            )
     }
 }
