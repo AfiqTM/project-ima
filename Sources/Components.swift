@@ -184,3 +184,22 @@ struct OfflineNotice: View {
         .card(12, padding: 12)
     }
 }
+
+
+// MARK: - Signed-in user's name (stored once, shown as "Hello, First Second")
+
+enum UserName {
+    static let key = "userFullName"
+
+    /// "MUHAMMAD AFIQ BIN ABDUL" -> "Hello, Muhammad Afiq"
+    static func greeting(_ full: String) -> String {
+        let words = full.split(separator: " ").prefix(2).map { String($0).capitalized }
+        return words.isEmpty ? "Hello" : "Hello, " + words.joined(separator: " ")
+    }
+
+    /// Call this wherever the app learns the student's name.
+    static func save(_ name: String) {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !n.isEmpty { UserDefaults.standard.set(n, forKey: key) }
+    }
+}
