@@ -255,3 +255,13 @@ enum DemoData {
         heading: "Demo mode", tables: [], dropdown: [], links: [],
         text: "Sign in with your i-Ma'luum account to see your real data on this tab.")
 }
+
+
+extension URL {
+    /// True for i-Ma'luum HTML pages we can read natively (not other sites, not PDFs/downloads).
+    var isReadableInApp: Bool {
+        guard host?.hasSuffix("imaluum.iium.edu.my") == true else { return false }
+        let ext = pathExtension.lowercased()
+        return !["pdf", "doc", "docx", "xls", "xlsx", "zip", "png", "jpg", "jpeg"].contains(ext)
+    }
+}
