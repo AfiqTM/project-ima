@@ -28,7 +28,7 @@ struct ExamsView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    ScreenHeader(title: "Exams", subtitle: nil)
+                    PageTitle(title: "Exams")
                     SegmentBar(selection: $seg)
                     PageContent(vm: current)
                         .id(seg)
@@ -39,32 +39,38 @@ struct ExamsView: View {
             }
             .refreshable { await current.load() }
             .task(id: seg) { await current.load() }
-            .amoled()
+            .screenBackground()
             .toolbar(.hidden, for: .navigationBar)
         }
     }
 }
 
+// Underline tabs (same idea as the userscript's .nav-tabs: muted text, accent underline on the active one)
 struct SegmentBar: View {
     @Binding var selection: ExamSegment
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 0) {
             ForEach(ExamSegment.allCases) { s in
                 let on = s == selection
                 Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { selection = s }
+                    withAnimation(.easeOut(duration: 0.15)) { selection = s }
                 } label: {
-                    Text(s.rawValue)
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundColor(on ? Color.black : Color.white.opacity(0.75))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Capsule().fill(on ? Theme.accent : Color.white.opacity(0.06)))
+                    VStack(spacing: 8) {
+                        Text(s.rawValue)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(on ? Theme.accent : Theme.muted)
+                        Rectangle()
+                            .fill(on ? Theme.accent : Color.clear)
+                            .frame(height: 2)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
+        .background(alignment: .bottom) { Hairline() }
     }
 }
 
@@ -86,7 +92,7 @@ struct SimplePageView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    ScreenHeader(title: title, subtitle: nil)
+                    PageTitle(title: title)
                     PageContent(vm: vm, extraLink: extraLink, placeAfter: "counsel")
                 }
                 .padding(.horizontal, 20)
@@ -101,7 +107,7 @@ struct SimplePageView: View {
                     extraLink = PageLink(text: e.title, href: u.absoluteString)
                 }
             }
-            .amoled()
+            .screenBackground()
             .toolbar(.hidden, for: .navigationBar)
         }
     }
@@ -123,9 +129,7 @@ struct DetailPageView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 if let h = vm.page?.heading, !h.isEmpty {
-                    Text(h)
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                    PageTitle(title: h)
                 }
                 PageContent(vm: vm)
             }
@@ -135,10 +139,10 @@ struct DetailPageView: View {
         }
         .refreshable { await vm.load() }
         .task { await vm.load() }
-        .amoled()
+        .screenBackground()
         .navigationTitle("Details")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Color.black, for: .navigationBar)
+        .toolbarBackground(Theme.bg, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -180,15 +184,18 @@ struct PageContent: View {
                 .padding(.vertical, 40)
             }
             if let e = vm.errorMessage {
-                ErrorCard(message: e,
-                          retry: { Task { await vm.load() } },
-                          openWeb: { showWeb = true })
+                ErrorPanel(message: e,
+                           retry: { Task { await vm.load() } },
+                           openWeb: { showWeb = true })
             }
-            if vm.isOffline { OfflineBanner() }
+            if vm.isOffline { OfflineNotice() }
 
             if let page = vm.page {
-                SessionPill(links: page.dropdown) { url in
-                    Task { await vm.load(url: url) }
+                HStack {
+                    Spacer()
+                    SessionMenu(links: page.dropdown) { url in
+                        Task { await vm.load(url: url) }
+                    }
                 }
                 let summaries = page.tables.flatMap { $0.rows }.compactMap { SummaryParser.parse($0) }
                 let tables = page.tables.compactMap { t -> WebTable? in
@@ -203,17 +210,17 @@ struct PageContent: View {
                 if !links.isEmpty { LinkList(links: links) }
                 if tables.isEmpty && summaries.isEmpty && links.isEmpty && !page.text.isEmpty {
                     Text(String(page.text.prefix(1200)))
-                        .font(.system(size: 14, design: .rounded))
-                        .foregroundColor(.white.opacity(0.85))
+                        .font(.system(size: 14))
+                        .foregroundColor(Theme.txt.opacity(0.85))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .glassCard(18)
+                        .card(16)
                 }
                 Button {
                     showWeb = true
                 } label: {
                     Label("Open full page", systemImage: "safari")
-                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundColor(Theme.accentSoft)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Theme.accent)
                 }
                 .padding(.top, 4)
             }
@@ -231,9 +238,7 @@ struct DataTable: View {
         let dataRows = hasHeader ? Array(table.rows.dropFirst()) : table.rows
         VStack(alignment: .leading, spacing: 10) {
             if !table.title.isEmpty {
-                Text(table.title)
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundColor(Theme.accentSoft)
+                SectionLabel(table.title)
             }
             ForEach(Array(dataRows.enumerated()), id: \.offset) { _, row in
                 RowCard(header: header, row: row)
@@ -280,24 +285,24 @@ struct RowCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 if hasTitle {
                     if pill {
-                        CodePill(text: title)
+                        CodeTag(text: title)
                     } else {
                         Text(title)
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundColor(.white)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(Theme.txt)
                     }
                 }
                 ForEach(others, id: \.offset) { o in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         if labeled {
                             Text(header[o.offset])
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                .foregroundColor(Theme.accent)
-                                .frame(width: 112, alignment: .leading)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(Theme.muted)
+                                .frame(width: 108, alignment: .leading)
                         }
                         Text(o.element)
-                            .font(.system(size: 14, weight: hasTitle ? .regular : .semibold, design: .rounded))
-                            .foregroundColor(.white.opacity(0.9))
+                            .font(.system(size: 14, weight: hasTitle ? .regular : .semibold))
+                            .foregroundColor(Theme.txt)
                         Spacer(minLength: 0)
                     }
                 }
@@ -305,13 +310,13 @@ struct RowCard: View {
             Spacer(minLength: 0)
             if chevron {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(Theme.accent)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(Theme.muted)
                     .padding(.top, 4)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard(18)
+        .card(14)
     }
 }
 
@@ -359,36 +364,36 @@ struct LinkRow: View {
         if tile {
             VStack(alignment: .leading, spacing: 6) {
                 Text(text)
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(Theme.txt)
                     .multilineTextAlignment(.leading)
                     .minimumScaleFactor(0.8)
                 if let s = subtitle, !s.isEmpty {
                     Text(s)
-                        .font(.system(size: 12, design: .rounded))
-                        .foregroundColor(Theme.accentSoft)
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.muted)
                         .multilineTextAlignment(.leading)
                 }
                 Spacer(minLength: 4)
                 HStack { Spacer(); arrow }
             }
-            .frame(maxWidth: .infinity, minHeight: 104, alignment: .topLeading)
-            .glassCard(18)
+            .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+            .card(14)
         } else {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(text)
-                        .font(.system(size: 15, weight: .medium, design: .rounded))
-                        .foregroundColor(.white)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(Theme.txt)
                         .multilineTextAlignment(.leading)
                     if let s = subtitle, !s.isEmpty {
-                        Text(s).font(.system(size: 12)).foregroundColor(Theme.accentSoft)
+                        Text(s).font(.system(size: 12)).foregroundColor(Theme.muted)
                     }
                 }
                 Spacer()
                 arrow
             }
-            .glassCard(16)
+            .card(14)
         }
     }
 
@@ -404,7 +409,6 @@ struct LinkRow: View {
     }
 }
 
-
 // MARK: - GPA / CGPA summary box
 
 struct SummaryCard: View {
@@ -418,29 +422,27 @@ struct SummaryCard: View {
 
     private func hero(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundColor(Theme.accentSoft)
+            SectionLabel(title)
             Text(value)
-                .font(.system(size: 34, weight: .bold, design: .rounded))
-                .foregroundColor(.white)
+                .font(.system(size: 34, weight: .bold).monospacedDigit())
+                .foregroundColor(Theme.accent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.accent.opacity(0.16)))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.accent.opacity(0.45), lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.surface2))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.accent.opacity(0.4), lineWidth: 1))
     }
 
     private func detail(_ p: SummaryPair) -> some View {
         let v = p.value.uppercased()
-        let color: Color = v == "PASS" ? Theme.success : (v == "FAIL" ? Color(hex: 0xFF6B6B) : Color.white)
+        let color: Color = v == "PASS" ? Theme.good : (v == "FAIL" ? Theme.bad : Theme.txt)
         return HStack(alignment: .firstTextBaseline) {
             Text(p.label)
-                .font(.system(size: 14, design: .rounded))
-                .foregroundColor(Theme.textSecondary)
+                .font(.system(size: 14))
+                .foregroundColor(Theme.muted)
             Spacer(minLength: 12)
             Text(p.value)
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(color)
         }
     }
@@ -457,13 +459,15 @@ struct SummaryCard: View {
                 }
             }
             ForEach(blocks.indices, id: \.self) { b in
-                if b > 0 { Divider().overlay(Color.white.opacity(0.12)) }
+                if b > 0 { Hairline() }
                 VStack(spacing: 9) {
                     ForEach(blocks[b].filter { !isGPA($0) && !isCGPA($0) }) { detail($0) }
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard(22)
+        .padding(16)
+        .glowCard(18)
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
     }
 }
