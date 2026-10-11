@@ -369,3 +369,62 @@ extension View {
             )
     }
 }
+
+
+// MARK: - Glass building blocks (real glass on iOS 26 / Xcode 26, frosted fallback otherwise)
+
+#if compiler(>=6.2)
+@available(iOS 26.0, *)
+private func makeGlass(tint: Color?, interactive: Bool) -> Glass {
+    var g = Glass.regular
+    if let t = tint { g = g.tint(t) }
+    if interactive { g = g.interactive() }
+    return g
+}
+#endif
+
+/// A capsule of liquid glass. Use inside a GlassGroup so neighbouring glass shapes blend together.
+struct GlassCapsule: View {
+    var tint: Color? = nil
+    var interactive = false
+
+    var body: some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            Color.clear.glassEffect(makeGlass(tint: tint, interactive: interactive), in: Capsule())
+        } else {
+            fallback
+        }
+        #else
+        fallback
+        #endif
+    }
+
+    private var fallback: some View {
+        Capsule()
+            .fill(.ultraThinMaterial)
+            .overlay(Capsule().fill(tint ?? Color.white.opacity(0.04)))
+            .overlay(
+                Capsule().strokeBorder(
+                    LinearGradient(colors: [Color.white.opacity(0.35), Color.white.opacity(0.05), Color.white.opacity(0.2)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing),
+                    lineWidth: 0.8)
+            )
+    }
+}
+
+struct GlassGroup<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: 0) { content() }
+        } else {
+            content()
+        }
+        #else
+        content()
+        #endif
+    }
+}
