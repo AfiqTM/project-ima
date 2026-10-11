@@ -2,6 +2,8 @@ import SwiftUI
 
 @main
 struct iMaluumApp: App {
+    init() { Theme.applyAppearance() }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -19,14 +21,14 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Theme.bg.ignoresSafeArea()
             switch session.state {
             case .checking:
                 VStack(spacing: 16) {
-                    ProgressView().tint(Theme.accent).scaleEffect(1.3)
+                    ProgressView().tint(Theme.accent).scaleEffect(1.2)
                     Text("Connecting to i-Ma'luum…")
-                        .font(.system(size: 14, design: .rounded))
-                        .foregroundColor(Theme.textSecondary)
+                        .font(.system(size: 14))
+                        .foregroundColor(Theme.muted)
                 }
             case .loggedOut:
                 LoginView()
