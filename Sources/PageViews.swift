@@ -35,7 +35,7 @@ struct ExamsView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
-                .padding(.bottom, 24)
+                .padding(.bottom, tabBarInset)
             }
             .refreshable { await current.load() }
             .task(id: seg) { await current.load() }
@@ -109,7 +109,7 @@ struct SimplePageView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
-                .padding(.bottom, 24)
+                .padding(.bottom, tabBarInset)
             }
             .refreshable { await vm.load() }
             .task {
@@ -148,7 +148,7 @@ struct DetailPageView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
-            .padding(.bottom, 24)
+            .padding(.bottom, tabBarInset)
         }
         .refreshable { await vm.load() }
         .task { await vm.load() }
