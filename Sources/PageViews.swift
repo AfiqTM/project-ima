@@ -82,15 +82,17 @@ struct SimplePageView: View {
         _vm = StateObject(wrappedValue: PageViewModel { try await WebSession.shared.link(for: keys) })
     }
 
+    private var extraTile: PageLink? {
+        guard let e = extra, let url = extraURL else { return nil }
+        return PageLink(text: e.title, href: url.absoluteString, subtitle: "Other academic items")
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     ScreenHeader(title: title, subtitle: nil)
-                    PageContent(vm: vm)
-                    if let e = extra, let url = extraURL {
-                        LinkRow(text: e.title, subtitle: nil, url: url, tile: false)
-                    }
+                    PageContent(vm: vm, extraLink: extraTile)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
@@ -155,6 +157,7 @@ struct DetailPageView: View {
 
 struct PageContent: View {
     @ObservedObject var vm: PageViewModel
+    var extraLink: PageLink? = nil
     @State private var showWeb = false
 
     var body: some View {
@@ -187,7 +190,8 @@ struct PageContent: View {
                 }
                 ForEach(summaries.indices, id: \.self) { SummaryCard(blocks: summaries[$0]) }
                 ForEach(tables) { t in DataTable(table: t) }
-                if !page.links.isEmpty { LinkList(links: page.links) }
+                let allLinks = page.links + (extraLink.map { [$0] } ?? [])
+                if !allLinks.isEmpty { LinkList(links: allLinks) }
                 if tables.isEmpty && summaries.isEmpty && page.links.isEmpty && !page.text.isEmpty {
                     Text(String(page.text.prefix(1200)))
                         .font(.system(size: 14, design: .rounded))
