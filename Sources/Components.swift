@@ -157,7 +157,7 @@ struct ErrorPanel: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundColor(Theme.bad)
-                Text(message)
+                Text(ServerError.friendly(message))
                     .font(.system(size: 14))
                     .foregroundColor(Theme.txt)
                 Spacer(minLength: 0)
@@ -426,5 +426,34 @@ struct GlassGroup<Content: View>: View {
         #else
         content()
         #endif
+    }
+}
+
+
+// MARK: - i-Ma'luum server hiccups ("Whoops, something went wrong")
+
+enum ServerError {
+    static func looksLikeServerError(_ text: String) -> Bool {
+        let t = text.lowercased()
+        return t.contains("whoops") || t.contains("something went wrong") || t.contains("server error")
+            || t.contains("500") && t.contains("error") || t.contains("503") || t.contains("service unavailable")
+    }
+
+    static func friendly(_ message: String) -> String {
+        looksLikeServerError(message)
+            ? "i-Ma'luum is having a problem right now. This is on their server, not the app. Try again in a moment."
+            : message
+    }
+}
+
+extension PageViewModel {
+    /// Loads the page and, if i-Ma'luum answers with an error, quietly retries a few times before giving up.
+    func loadResilient(url: URL? = nil, attempts: Int = 3) async {
+        for i in 0..<attempts {
+            if let url { await load(url: url) } else { await load() }
+            let bad = errorMessage != nil || ServerError.looksLikeServerError(String((page?.text ?? "").prefix(600)))
+            if !bad || i == attempts - 1 || Task.isCancelled { return }
+            try? await Task.sleep(nanoseconds: UInt64(1_500_000_000 * (i + 1)))
+        }
     }
 }
