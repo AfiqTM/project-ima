@@ -50,7 +50,7 @@ struct MainTabs: View {
         switch t {
         case .classes: ClassesView()
         case .exams: ExamsView()
-        case .services: SimplePageView(title: "My Services", keys: ["my services", "services"])
+        case .services: SimplePageView(title: "My Services", keys: ["my services", "services"], extra: (title: "Others", keys: ["others"]))
         case .disciplinary: SimplePageView(title: "Disciplinary", keys: ["disciplinary"])
         case .coCurriculum: SimplePageView(title: "Co-Curriculum", keys: ["co-curriculum", "co-curricul"])
         }
