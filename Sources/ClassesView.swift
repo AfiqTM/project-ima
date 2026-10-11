@@ -27,7 +27,7 @@ struct ClassesView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 HStack(alignment: .top) {
-                    PageTitle(title: UserName.greeting(fullName), subtitle: vm.page?.heading)
+                    GreetingTitle(name: UserName.shortName(fullName), subtitle: vm.page?.heading)
                     SessionMenu(links: vm.page?.dropdown ?? []) { url in
                         Task { await vm.load(url: url) }
                     }
@@ -73,7 +73,10 @@ struct ClassesView: View {
             .padding(.bottom, 24)
         }
         .refreshable { await vm.load() }
-        .task { await vm.load() }
+        .task {
+            if WebSession.shared.state != .demo { NameFetcher.shared.fetchIfNeeded() }
+            await vm.load()
+        }
         .screenBackground()
         .sheet(isPresented: $showWeb) { WebSheet(url: Endpoints.schedule) }
     }
