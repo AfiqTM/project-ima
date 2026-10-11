@@ -33,7 +33,7 @@ struct ClassesView: View {
                         .contentShape(Rectangle())
                         .onTapGesture { nameDraft = UserName.shortName(fullName); editingName = true }
                     SessionMenu(links: vm.page?.dropdown ?? []) { url in
-                        Task { await vm.load(url: url) }
+                        Task { await vm.loadResilient(url: url) }
                     }
                     .padding(.top, 6)
                 }
@@ -49,7 +49,11 @@ struct ClassesView: View {
 
                 if vm.isOffline { OfflineNotice() }
 
-                if let page = vm.page, classes.isEmpty, !vm.isLoading {
+                if let page = vm.page, classes.isEmpty, !vm.isLoading, ServerError.looksLikeServerError(page.text) {
+                    ErrorPanel(message: "Whoops",
+                               retry: { Task { await vm.loadResilient() } },
+                               openWeb: { showWeb = true })
+                } else if let page = vm.page, classes.isEmpty, !vm.isLoading {
                     VStack(alignment: .leading, spacing: 10) {
                         Label("Page loaded, but no timetable was found", systemImage: "questionmark.circle.fill")
                             .font(.system(size: 15, weight: .semibold))
@@ -68,7 +72,7 @@ struct ClassesView: View {
 
                 if let e = vm.errorMessage {
                     ErrorPanel(message: e,
-                               retry: { Task { await vm.load() } },
+                               retry: { Task { await vm.loadResilient() } },
                                openWeb: { showWeb = true })
                 }
             }
@@ -76,10 +80,10 @@ struct ClassesView: View {
             .padding(.top, 8)
             .padding(.bottom, tabBarInset)
         }
-        .refreshable { await vm.load() }
+        .refreshable { await vm.loadResilient() }
         .task {
             if WebSession.shared.state != .demo { NameFetcher.shared.fetchIfNeeded() }
-            await vm.load()
+            await vm.loadResilient()
         }
         .screenBackground()
         .onChange(of: vm.page) { page in
