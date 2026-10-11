@@ -23,12 +23,21 @@ enum Theme {
         UINavigationBar.appearance().scrollEdgeAppearance = nav
         UINavigationBar.appearance().compactAppearance = nav
 
-        let tab = UITabBarAppearance()
-        tab.configureWithOpaqueBackground()
-        tab.backgroundColor = .black
-        tab.shadowColor = .clear
-        UITabBar.appearance().standardAppearance = tab
-        UITabBar.appearance().scrollEdgeAppearance = tab
+        // iOS 26+: leave the tab bar alone so the system draws its real Liquid Glass bar.
+        // Older iOS: flat black bar with muted icons.
+        if #unavailable(iOS 26.0) {
+            let tab = UITabBarAppearance()
+            tab.configureWithOpaqueBackground()
+            tab.backgroundColor = .black
+            tab.shadowColor = .clear
+            let muted = UIColor(self.muted)
+            for item in [tab.stackedLayoutAppearance, tab.inlineLayoutAppearance, tab.compactInlineLayoutAppearance] {
+                item.normal.iconColor = muted
+                item.normal.titleTextAttributes = [.foregroundColor: muted]
+            }
+            UITabBar.appearance().standardAppearance = tab
+            UITabBar.appearance().scrollEdgeAppearance = tab
+        }
     }
 }
 
