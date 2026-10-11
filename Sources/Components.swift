@@ -341,7 +341,7 @@ final class NameFetcher: NSObject, WKNavigationDelegate {
 // MARK: - Liquid glass
 
 /// Space to leave at the bottom of scrolling screens so content clears the floating tab bar.
-let tabBarInset: CGFloat = 96
+let tabBarInset: CGFloat = 80
 
 extension View {
     @ViewBuilder
