@@ -57,49 +57,66 @@ struct MainTabs: View {
     }
 }
 
-// Floating "liquid glass" bar. On iOS 26 (built with Xcode 26) it uses the real glassEffect;
-// otherwise it falls back to a frosted material that looks similar.
+// Floating liquid-glass bar with a sliding selection lens.
+// Tap a tab, or press and drag across the bar and the lens follows your finger.
+// On iOS 26 (built with Xcode 26) the bar is real glass (glassEffect, interactive);
+// older systems get a frosted-material fallback.
 struct AppTabBar: View {
     @Binding var selection: AppTab
-    @Namespace private var ns
+    private let pad: CGFloat = 5
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(AppTab.allCases) { tab in
-                let selected = selection == tab
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { selection = tab }
-                } label: {
-                    VStack(spacing: 3) {
-                        Image(systemName: tab.icon).font(.system(size: 18, weight: .semibold))
-                        Text(tab.title)
-                            .font(.system(size: 10, weight: .semibold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
+        GeometryReader { geo in
+            let count = AppTab.allCases.count
+            let itemW = (geo.size.width - pad * 2) / CGFloat(count)
+
+            ZStack(alignment: .leading) {
+                // sliding lens
+                Capsule()
+                    .fill(LinearGradient(colors: [Theme.accent.opacity(0.30), Theme.accent.opacity(0.10)],
+                                         startPoint: .top, endPoint: .bottom))
+                    .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.45), lineWidth: 0.8))
+                    .frame(width: itemW, height: geo.size.height - pad * 2)
+                    .offset(x: pad + CGFloat(selection.rawValue) * itemW)
+
+                HStack(spacing: 0) {
+                    ForEach(AppTab.allCases) { tab in
+                        let selected = selection == tab
+                        VStack(spacing: 3) {
+                            Image(systemName: tab.icon).font(.system(size: 18, weight: .semibold))
+                            Text(tab.title)
+                                .font(.system(size: 10, weight: .semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                        }
+                        .foregroundColor(selected ? Theme.accent : Theme.txt.opacity(0.65))
+                        .frame(width: itemW, height: geo.size.height)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(tab.title)
+                        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
                     }
-                    .foregroundColor(selected ? Theme.accent : Theme.txt.opacity(0.65))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background {
-                        if selected {
-                            Capsule()
-                                .fill(Theme.accent.opacity(0.16))
-                                .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.35), lineWidth: 0.8))
-                                .matchedGeometryEffect(id: "sel", in: ns)
+                }
+                .padding(.horizontal, pad)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .contentShape(Capsule())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        let idx = min(max(Int((v.location.x - pad) / itemW), 0), count - 1)
+                        if let t = AppTab(rawValue: idx), t != selection {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            withAnimation(.spring(response: 0.38, dampingFraction: 0.72)) { selection = t }
                         }
                     }
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(tab.title)
-            }
+            )
         }
-        .padding(6)
+        .frame(height: 62)
         .liquidGlass(in: Capsule())
         .shadow(color: .black.opacity(0.6), radius: 14, y: 6)
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
+        .offset(y: 10)   // sits a little lower, closer to the home indicator
     }
 }
 
