@@ -26,23 +26,19 @@ enum AppTab: Int, CaseIterable, Identifiable {
     }
 }
 
+// Native TabView: on iOS 26 (built with Xcode 26) the system draws the real Liquid Glass tab bar,
+// including the draggable glass lens, refraction and edge highlights. Older iOS gets the standard bar.
 struct MainTabs: View {
     @State private var tab: AppTab = .classes
-    @State private var visited: Set<AppTab> = [.classes]
 
     var body: some View {
-        ZStack {
+        TabView(selection: $tab) {
             ForEach(AppTab.allCases) { t in
-                if visited.contains(t) {
-                    content(t)
-                        .opacity(tab == t ? 1 : 0)
-                        .allowsHitTesting(tab == t)
-                        .accessibilityHidden(tab != t)
-                }
+                content(t)
+                    .tabItem { Label(t.title, systemImage: t.icon) }
+                    .tag(t)
             }
         }
-        .overlay(alignment: .bottom) { AppTabBar(selection: $tab) }
-        .onChange(of: tab) { newValue in visited.insert(newValue) }
     }
 
     @ViewBuilder
@@ -54,98 +50,6 @@ struct MainTabs: View {
         case .disciplinary: SimplePageView(title: "Disciplinary", keys: ["disciplinary"])
         case .coCurriculum: SimplePageView(title: "Co-Curriculum", keys: ["co-curriculum", "co-curricul"])
         }
-    }
-}
-
-// Floating liquid-glass tab bar with a glass "lens" that follows your finger.
-// Press and drag: the lens glides continuously and magnifies slightly; on release it settles on the nearest tab.
-// Tapping glides the lens to that tab. Real glass on iOS 26 (Xcode 26 build), frosted fallback otherwise.
-struct AppTabBar: View {
-    @Binding var selection: AppTab
-    @State private var dragX: CGFloat? = nil   // finger x while pressing, nil at rest
-    @State private var lastIdx = 0
-    private let pad: CGFloat = 6
-
-    private func index(at x: CGFloat, itemW: CGFloat) -> Int {
-        min(max(Int((x - pad) / itemW), 0), AppTab.allCases.count - 1)
-    }
-
-    var body: some View {
-        GeometryReader { geo in
-            let count = CGFloat(AppTab.allCases.count)
-            let itemW = (geo.size.width - pad * 2) / count
-            let lensH = geo.size.height - pad * 2
-            let restX = pad + CGFloat(selection.rawValue) * itemW
-            let lensX: CGFloat = {
-                guard let d = dragX else { return restX }
-                return min(max(d - itemW / 2, pad), geo.size.width - pad - itemW)
-            }()
-            let active = dragX != nil ? index(at: lensX + itemW / 2, itemW: itemW) : selection.rawValue
-
-            GlassGroup {
-                ZStack(alignment: .leading) {
-                    // the bar
-                    GlassCapsule(interactive: true)
-                        .frame(width: geo.size.width, height: geo.size.height)
-
-                    // the sliding lens
-                    GlassCapsule(tint: Color.black.opacity(0.28))
-                        .frame(width: itemW, height: lensH)
-                        .scaleEffect(dragX != nil ? 1.12 : 1)
-                        .offset(x: lensX)
-
-                    // tabs
-                    HStack(spacing: 0) {
-                        ForEach(AppTab.allCases) { tab in
-                            let on = active == tab.rawValue
-                            VStack(spacing: 3) {
-                                Image(systemName: tab.icon).font(.system(size: 21, weight: .semibold))
-                                Text(tab.title)
-                                    .font(.system(size: 10.5, weight: .semibold))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.7)
-                            }
-                            .foregroundColor(on ? Theme.accent : Theme.txt.opacity(0.85))
-                            .frame(width: itemW, height: geo.size.height)
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel(tab.title)
-                            .accessibilityAddTraits(selection == tab ? [.isButton, .isSelected] : .isButton)
-                        }
-                    }
-                    .padding(.horizontal, pad)
-                    .animation(.easeOut(duration: 0.15), value: active)
-                }
-            }
-            .contentShape(Capsule())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { v in
-                        let i = index(at: v.location.x, itemW: itemW)
-                        if dragX == nil {
-                            lastIdx = selection.rawValue
-                            withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) { dragX = v.location.x }
-                        } else {
-                            withAnimation(.interactiveSpring(response: 0.18, dampingFraction: 0.88)) { dragX = v.location.x }
-                        }
-                        if i != lastIdx {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            lastIdx = i
-                        }
-                    }
-                    .onEnded { v in
-                        let i = index(at: v.location.x, itemW: itemW)
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.76)) {
-                            if let t = AppTab(rawValue: i) { selection = t }
-                            dragX = nil
-                        }
-                    }
-            )
-        }
-        .frame(height: 68)
-        .shadow(color: .black.opacity(0.55), radius: 16, y: 8)
-        .padding(.horizontal, 14)
-        .padding(.bottom, 4)
-        .offset(y: 10)   // slightly lower
     }
 }
 
