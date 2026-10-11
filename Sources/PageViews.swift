@@ -213,15 +213,22 @@ struct DataTable: View {
 struct RowCard: View {
     let header: [String]
     let row: WebRow
+    @State private var showWeb = false
 
     var body: some View {
         if let h = row.href, let url = URL(string: h) {
-            NavigationLink {
-                DetailPageView(url: url)
-            } label: {
-                content(chevron: true)
+            if url.isReadableInApp {
+                NavigationLink {
+                    DetailPageView(url: url)
+                } label: {
+                    content(chevron: true)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button { showWeb = true } label: { content(chevron: true) }
+                    .buttonStyle(.plain)
+                    .sheet(isPresented: $showWeb) { WebSheet(url: url) }
             }
-            .buttonStyle(.plain)
         } else {
             content(chevron: false)
         }
@@ -279,24 +286,40 @@ struct LinkList: View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(links) { l in
                 if let url = URL(string: l.href) {
-                    NavigationLink {
-                        DetailPageView(url: url)
-                    } label: {
-                        HStack {
-                            Text(l.text)
-                                .font(.system(size: 15, weight: .medium, design: .rounded))
-                                .foregroundColor(.white)
-                                .multilineTextAlignment(.leading)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundColor(Theme.accent)
-                        }
-                        .glassCard(16)
-                    }
-                    .buttonStyle(.plain)
+                    LinkRow(text: l.text, url: url)
                 }
             }
+        }
+    }
+}
+
+struct LinkRow: View {
+    let text: String
+    let url: URL
+    @State private var showWeb = false
+
+    private var label: some View {
+        HStack {
+            Text(text)
+                .font(.system(size: 15, weight: .medium, design: .rounded))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.leading)
+            Spacer()
+            Image(systemName: url.isReadableInApp ? "chevron.right" : "arrow.up.right")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(Theme.accent)
+        }
+        .glassCard(16)
+    }
+
+    var body: some View {
+        if url.isReadableInApp {
+            NavigationLink { DetailPageView(url: url) } label: { label }
+                .buttonStyle(.plain)
+        } else {
+            Button { showWeb = true } label: { label }
+                .buttonStyle(.plain)
+                .sheet(isPresented: $showWeb) { WebSheet(url: url) }
         }
     }
 }
