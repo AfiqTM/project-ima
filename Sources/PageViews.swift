@@ -239,17 +239,21 @@ struct RowCard: View {
         let titleIndex = cells.firstIndex { !$0.isEmpty } ?? 0
         let title = cells.isEmpty ? "" : cells[titleIndex]
         let labeled = header.count == cells.count
-        let others = cells.enumerated().filter { $0.offset != titleIndex && !$0.element.isEmpty }
-        let pill = cells.count > 2 && title.count <= 10 && !title.contains(" ")
+        let pill = cells.count > 2 && title.range(of: "^[A-Za-z]{3,5} ?[0-9]{3,4}", options: .regularExpression) != nil
+        // Label/value tables without a course code (e.g. GPA summaries) show every field as a pair.
+        let hasTitle = pill || !labeled
+        let others = cells.enumerated().filter { (!hasTitle || $0.offset != titleIndex) && !$0.element.isEmpty }
 
         return HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 8) {
-                if pill {
-                    CodePill(text: title)
-                } else {
-                    Text(title)
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundColor(.white)
+                if hasTitle {
+                    if pill {
+                        CodePill(text: title)
+                    } else {
+                        Text(title)
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                    }
                 }
                 ForEach(others, id: \.offset) { o in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -257,11 +261,11 @@ struct RowCard: View {
                             Text(header[o.offset])
                                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                                 .foregroundColor(Theme.accent)
-                                .frame(width: 92, alignment: .leading)
+                                .frame(width: 112, alignment: .leading)
                         }
                         Text(o.element)
-                            .font(.system(size: 14, design: .rounded))
-                            .foregroundColor(.white.opacity(0.88))
+                            .font(.system(size: 14, weight: hasTitle ? .regular : .semibold, design: .rounded))
+                            .foregroundColor(.white.opacity(0.9))
                         Spacer(minLength: 0)
                     }
                 }
@@ -282,11 +286,23 @@ struct RowCard: View {
 struct LinkList: View {
     let links: [PageLink]
 
+    private var isTileGrid: Bool { links.contains { ($0.subtitle ?? "").isEmpty == false } }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(links) { l in
-                if let url = URL(string: l.href) {
-                    LinkRow(text: l.text, url: url)
+        if isTileGrid {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                ForEach(links) { l in
+                    if let url = URL(string: l.href) {
+                        LinkRow(text: l.text, subtitle: l.subtitle, url: url, tile: true)
+                    }
+                }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(links) { l in
+                    if let url = URL(string: l.href) {
+                        LinkRow(text: l.text, subtitle: l.subtitle, url: url, tile: false)
+                    }
                 }
             }
         }
@@ -295,21 +311,53 @@ struct LinkList: View {
 
 struct LinkRow: View {
     let text: String
+    let subtitle: String?
     let url: URL
+    let tile: Bool
     @State private var showWeb = false
 
+    private var arrow: some View {
+        Image(systemName: url.isReadableInApp ? "chevron.right" : "arrow.up.right")
+            .font(.system(size: 12, weight: .bold))
+            .foregroundColor(Theme.accent)
+    }
+
+    @ViewBuilder
     private var label: some View {
-        HStack {
-            Text(text)
-                .font(.system(size: 15, weight: .medium, design: .rounded))
-                .foregroundColor(.white)
-                .multilineTextAlignment(.leading)
-            Spacer()
-            Image(systemName: url.isReadableInApp ? "chevron.right" : "arrow.up.right")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundColor(Theme.accent)
+        if tile {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(text)
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.leading)
+                    .minimumScaleFactor(0.8)
+                if let s = subtitle, !s.isEmpty {
+                    Text(s)
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundColor(Theme.accentSoft)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 4)
+                HStack { Spacer(); arrow }
+            }
+            .frame(maxWidth: .infinity, minHeight: 104, alignment: .topLeading)
+            .glassCard(18)
+        } else {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(text)
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.leading)
+                    if let s = subtitle, !s.isEmpty {
+                        Text(s).font(.system(size: 12)).foregroundColor(Theme.accentSoft)
+                    }
+                }
+                Spacer()
+                arrow
+            }
+            .glassCard(16)
         }
-        .glassCard(16)
     }
 
     var body: some View {
