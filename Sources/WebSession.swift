@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import Security
 
 enum SessionError: LocalizedError {
     case notLoggedIn
@@ -62,6 +63,7 @@ final class WebSession: NSObject, ObservableObject, WKNavigationDelegate {
     // MARK: Session lifecycle
 
     func bootstrap() async {
+        await restoreCookies()
         do {
             let page = try await fetch(Endpoints.schedule)
             PageCache.save(page, for: Endpoints.schedule)
@@ -83,9 +85,36 @@ final class WebSession: NSObject, ObservableObject, WKNavigationDelegate {
         let store = WKWebsiteDataStore.default()
         await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
         PageCache.clear()
+        CookieVault.clear()
         menu = []
         state = .loggedOut
         loginWebView.load(URLRequest(url: Endpoints.base))
+    }
+
+    // MARK: Staying signed in
+    // WKWebView drops session cookies when the app is closed, so the iium.edu.my cookies
+    // (including the CAS single-sign-on cookie) are kept in the Keychain and restored on launch.
+
+    private var lastCookieSave = Date.distantPast
+
+    func saveCookies(throttled: Bool) async {
+        if throttled, Date().timeIntervalSince(lastCookieSave) < 60 { return }
+        lastCookieSave = Date()
+        let all = await WKWebsiteDataStore.default().httpCookieStore.allCookies()
+        let saved = all.filter { $0.domain.contains("iium.edu.my") }.map(SavedCookie.init)
+        guard !saved.isEmpty, let data = try? JSONEncoder().encode(saved) else { return }
+        CookieVault.write(data)
+    }
+
+    func restoreCookies() async {
+        guard let data = CookieVault.read(),
+              let saved = try? JSONDecoder().decode([SavedCookie].self, from: data) else { return }
+        let store = WKWebsiteDataStore.default().httpCookieStore
+        let existing = await store.allCookies()
+        let have = Set(existing.map { "\($0.name)|\($0.domain)|\($0.path)" })
+        for sc in saved where !have.contains("\(sc.name)|\(sc.domain)|\(sc.path)") {
+            if let c = sc.makeCookie() { await store.setCookie(c) }
+        }
     }
 
     // MARK: Fetching
@@ -96,12 +125,13 @@ final class WebSession: NSObject, ObservableObject, WKNavigationDelegate {
         defer { busy = false }
         attachWorker()
         try await load(url)
-        try ensureLoggedIn()
+        try await ensureLoggedIn()
         await waitForContent()
         let result = try await worker.evaluateJavaScript(JS.extractPage)
         guard let s = result as? String, let data = s.data(using: .utf8) else { throw SessionError.badData }
         let page = try JSONDecoder().decode(PageData.self, from: data)
         if state == .checking || state == .loggedOut { state = .loggedIn }
+        await saveCookies(throttled: true)
         return page
     }
 
@@ -126,18 +156,24 @@ final class WebSession: NSObject, ObservableObject, WKNavigationDelegate {
         defer { busy = false }
         attachWorker()
         try await load(Endpoints.schedule)
-        try ensureLoggedIn()
+        try await ensureLoggedIn()
         await waitForContent()
         let result = try await worker.evaluateJavaScript(JS.menuLinks)
         guard let s = result as? String, let data = s.data(using: .utf8) else { throw SessionError.badData }
         return try JSONDecoder().decode([PageLink].self, from: data)
     }
 
-    private func ensureLoggedIn() throws {
-        guard let host = worker.url?.host, host.hasSuffix("imaluum.iium.edu.my") else {
-            state = .loggedOut
-            throw SessionError.notLoggedIn
+    /// Returns once the worker is on i-Ma'luum. If it was bounced through CAS single sign-on, waits for it to come back;
+    /// a real password form means the session is gone.
+    private func ensureLoggedIn() async throws {
+        for _ in 0..<24 {
+            if worker.url?.host?.hasSuffix("imaluum.iium.edu.my") == true { return }
+            let js = "!!document.querySelector('input[type=password]')"
+            if let hasPassword = try? await worker.evaluateJavaScript(js) as? Bool, hasPassword { break }
+            try await Task.sleep(nanoseconds: 300_000_000)
         }
+        state = .loggedOut
+        throw SessionError.notLoggedIn
     }
 
     /// A web view that isn't in any window can be throttled by iOS; park it (invisible, behind the UI) in the key window.
@@ -214,6 +250,7 @@ final class WebSession: NSObject, ObservableObject, WKNavigationDelegate {
         let js = "(location.host.indexOf('imaluum.iium.edu.my')>=0) && ((document.body.innerText||'').indexOf('My Academic')>=0)"
         if let ok = try? await loginWebView.evaluateJavaScript(js) as? Bool, ok, state == .loggedOut {
             state = .loggedIn
+            await saveCookies(throttled: false)
         }
     }
 }
@@ -225,15 +262,18 @@ enum JS {
     (function(){
       function t(e){return ((e.innerText||e.textContent||'')+'').replace(/\s+/g,' ').trim();}
       function ok(h){return h && h.indexOf('javascript')!==0 && h.slice(-1)!=='#';}
+      function inSide(e){return !!e.closest('.main-sidebar, .left-side, .sidebar, .sidebar-menu, .main-header, .navbar, .breadcrumb');}
       var root=document.querySelector('.content-wrapper')||document.body;
-      function inSide(e){return !!e.closest('.main-sidebar, .left-side, .sidebar, .sidebar-menu, .main-header, .navbar');}
+
+      // ---- tables (nested tables are read on their own; rows that merely wrap a table are skipped)
       var tables=[];
       document.querySelectorAll('table').forEach(function(tb){
         if(inSide(tb)) return;
         var rows=[];
-        tb.querySelectorAll('tr').forEach(function(tr){
+        Array.prototype.forEach.call(tb.rows, function(tr){
+          for(var i=0;i<tr.cells.length;i++){ if(tr.cells[i].querySelector('table')) return; }
           var cells=[];
-          tr.querySelectorAll('th,td').forEach(function(c){cells.push(t(c));});
+          Array.prototype.forEach.call(tr.cells, function(c){cells.push(t(c));});
           if(!cells.length) return;
           var a=tr.querySelector('a[href]');
           rows.push({cells:cells, href:(a && ok(a.href))? a.href : null});
@@ -241,23 +281,55 @@ enum JS {
         if(rows.length){
           var cap=tb.querySelector('caption');
           var prev=tb.previousElementSibling;
-          tables.push({title: cap? t(cap) : (prev? t(prev).slice(0,80):''), rows:rows});
+          tables.push({title: cap? t(cap) : (prev && !prev.querySelector('table') ? t(prev).slice(0,80):''), rows:rows});
         }
       });
+      // a header-only table followed by a values-only table (same column count) is really one table
+      var merged=[];
+      for(var i=0;i<tables.length;i++){
+        var A=tables[i], B=tables[i+1];
+        if(B && A.rows.length===1 && B.rows.length===1 && A.rows[0].cells.length===B.rows[0].cells.length && A.rows[0].cells.length>1){
+          merged.push({title:A.title, rows:[A.rows[0], B.rows[0]]}); i++;
+        } else { merged.push(A); }
+      }
+      tables=merged;
+
       var hEl=root.querySelector('.box-title,.panel-title,h3,h4,h2');
       var dd=[];
       root.querySelectorAll('.dropdown-menu a[href]').forEach(function(a){
         if(inSide(a)) return;
         var x=t(a); if(x && ok(a.href)) dd.push({text:x, href:a.href});
       });
+
+      // ---- links; "click here" style tiles take their real name from the tile's heading
+      function tileInfo(a){
+        var inner=a.querySelector('h1,h2,h3,h4,h5');
+        if(inner){ var p0=a.querySelector('p'); return {title:t(inner), sub:p0? t(p0):''}; }
+        var el=a.parentElement;
+        for(var i=0;i<6 && el && el!==root;i++){
+          var h=el.querySelector('h1,h2,h3,h4,h5');
+          if(h && el.querySelectorAll('a[href]').length<=1){
+            var p=el.querySelector('p');
+            return {title:t(h), sub:p? t(p):''};
+          }
+          el=el.parentElement;
+        }
+        return null;
+      }
       var links=[], seen={};
       root.querySelectorAll('a[href]').forEach(function(a){
-        if(a.closest('.dropdown-menu') || a.closest('table')) return;
-        if(inSide(a)) return;
-        var x=t(a); if(!x || !ok(a.href) || seen[a.href]) return;
-        seen[a.href]=1; links.push({text:x, href:a.href});
+        if(a.closest('.dropdown-menu') || a.closest('table') || inSide(a)) return;
+        var x=t(a); if(!x || !ok(a.href)) return;
+        if(x.toLowerCase()==='home') return;
+        var sub=null;
+        if(/click here|register here|more info|read more|^here$/i.test(x)){
+          var info=tileInfo(a);
+          if(info && info.title){ x=info.title; sub=info.sub||null; }
+        }
+        var key=a.href+'|'+x; if(seen[key]) return; seen[key]=1;
+        links.push({text:x, href:a.href, subtitle:sub});
       });
-      return JSON.stringify({heading: hEl? t(hEl):'', tables:tables, dropdown:dd, links:links.slice(0,60), text:t(root).slice(0,2500)});
+      return JSON.stringify({heading: hEl? t(hEl):'', tables:tables, dropdown:dd, links:links.slice(0,80), text:t(root).slice(0,2500)});
     })()
     """#
 
@@ -311,5 +383,79 @@ final class PageViewModel: ObservableObject {
         } catch {
             if page != nil { isOffline = true } else { errorMessage = error.localizedDescription }
         }
+    }
+}
+
+
+// MARK: - Cookie persistence
+
+struct SavedCookie: Codable {
+    var name: String
+    var value: String
+    var domain: String
+    var path: String
+    var expires: Date?
+    var secure: Bool
+    var httpOnly: Bool
+    var sameSite: String?
+
+    init(_ c: HTTPCookie) {
+        name = c.name; value = c.value; domain = c.domain; path = c.path
+        expires = c.expiresDate; secure = c.isSecure; httpOnly = c.isHTTPOnly
+        sameSite = c.sameSitePolicy?.rawValue
+    }
+
+    func makeCookie() -> HTTPCookie? {
+        // Session cookies get a long expiry so they survive the app being closed.
+        let exp = expires ?? Date().addingTimeInterval(30 * 24 * 3600)
+        if exp < Date() { return nil }
+        var props: [HTTPCookiePropertyKey: Any] = [
+            .name: name, .value: value, .domain: domain, .path: path, .expires: exp
+        ]
+        if secure { props[.secure] = "TRUE" }
+        if httpOnly { props[HTTPCookiePropertyKey("HttpOnly")] = "TRUE" }
+        if let s = sameSite { props[.sameSitePolicy] = s }
+        return HTTPCookie(properties: props)
+    }
+}
+
+enum CookieVault {
+    private static let service = "imaluum.cookies"
+    private static var fileURL: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("session.bin")
+    }
+
+    static func write(_ data: Data) {
+        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                kSecAttrService as String: service,
+                                kSecAttrAccount as String: "cookies"]
+        SecItemDelete(q as CFDictionary)
+        var add = q
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        if SecItemAdd(add as CFDictionary, nil) != errSecSuccess {
+            // Some sideloading setups block Keychain access; fall back to a protected file.
+            try? data.write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        }
+    }
+
+    static func read() -> Data? {
+        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                kSecAttrService as String: service,
+                                kSecAttrAccount as String: "cookies",
+                                kSecReturnData as String: true,
+                                kSecMatchLimit as String: kSecMatchLimitOne]
+        var out: CFTypeRef?
+        if SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let d = out as? Data { return d }
+        return try? Data(contentsOf: fileURL)
+    }
+
+    static func clear() {
+        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                kSecAttrService as String: service]
+        SecItemDelete(q as CFDictionary)
+        try? FileManager.default.removeItem(at: fileURL)
     }
 }
