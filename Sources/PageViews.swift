@@ -88,6 +88,18 @@ struct SimplePageView: View {
         _vm = StateObject(wrappedValue: PageViewModel { try await WebSession.shared.link(for: keys) })
     }
 
+    /// Looks up the "Others" link, retrying a few times because the menu may not be ready on the first try.
+    private func loadExtra() async {
+        guard let e = extra, extraLink == nil, WebSession.shared.state != .demo else { return }
+        for attempt in 0..<5 {
+            if let u = try? await WebSession.shared.link(for: e.keys) {
+                extraLink = PageLink(text: e.title, href: u.absoluteString)
+                return
+            }
+            try? await Task.sleep(nanoseconds: UInt64(600_000_000 * (attempt + 1)))
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -101,11 +113,12 @@ struct SimplePageView: View {
             }
             .refreshable { await vm.load() }
             .task {
+                // Fetch the extra link in its own task so it neither waits for the page load nor gets cancelled with it.
+                Task { await loadExtra() }
                 await vm.load()
-                if let e = extra, extraLink == nil, WebSession.shared.state != .demo,
-                   let u = try? await WebSession.shared.link(for: e.keys) {
-                    extraLink = PageLink(text: e.title, href: u.absoluteString)
-                }
+            }
+            .onChange(of: vm.page) { _ in
+                if extraLink == nil { Task { await loadExtra() } }
             }
             .screenBackground()
             .toolbar(.hidden, for: .navigationBar)
