@@ -74,7 +74,7 @@ struct SimplePageView: View {
     let title: String
     let extra: (title: String, keys: [String])?
     @StateObject private var vm: PageViewModel
-    @State private var extraURL: URL?
+    @State private var extraLink: PageLink?
 
     init(title: String, keys: [String], extra: (title: String, keys: [String])? = nil) {
         self.title = title
@@ -82,17 +82,12 @@ struct SimplePageView: View {
         _vm = StateObject(wrappedValue: PageViewModel { try await WebSession.shared.link(for: keys) })
     }
 
-    private var extraTile: PageLink? {
-        guard let e = extra, let url = extraURL else { return nil }
-        return PageLink(text: e.title, href: url.absoluteString, subtitle: "Other academic items")
-    }
-
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     ScreenHeader(title: title, subtitle: nil)
-                    PageContent(vm: vm, extraLink: extraTile)
+                    PageContent(vm: vm, extraLink: extraLink, placeAfter: "counsel")
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
@@ -101,8 +96,9 @@ struct SimplePageView: View {
             .refreshable { await vm.load() }
             .task {
                 await vm.load()
-                if let e = extra, extraURL == nil, WebSession.shared.state != .demo {
-                    extraURL = try? await WebSession.shared.link(for: e.keys)
+                if let e = extra, extraLink == nil, WebSession.shared.state != .demo,
+                   let u = try? await WebSession.shared.link(for: e.keys) {
+                    extraLink = PageLink(text: e.title, href: u.absoluteString)
                 }
             }
             .amoled()
@@ -157,8 +153,21 @@ struct DetailPageView: View {
 
 struct PageContent: View {
     @ObservedObject var vm: PageViewModel
-    var extraLink: PageLink? = nil
     @State private var showWeb = false
+    var extraLink: PageLink? = nil
+    var placeAfter: String = ""
+
+    private func merged(_ links: [PageLink]) -> [PageLink] {
+        guard let x = extraLink, !links.contains(where: { $0.href == x.href }) else { return links }
+        var out = links
+        if !placeAfter.isEmpty,
+           let i = out.firstIndex(where: { $0.text.lowercased().contains(placeAfter) }) {
+            out.insert(x, at: i + 1)
+        } else {
+            out.append(x)
+        }
+        return out
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -190,9 +199,9 @@ struct PageContent: View {
                 }
                 ForEach(summaries.indices, id: \.self) { SummaryCard(blocks: summaries[$0]) }
                 ForEach(tables) { t in DataTable(table: t) }
-                let allLinks = page.links + (extraLink.map { [$0] } ?? [])
-                if !allLinks.isEmpty { LinkList(links: allLinks) }
-                if tables.isEmpty && summaries.isEmpty && page.links.isEmpty && !page.text.isEmpty {
+                let links = merged(page.links)
+                if !links.isEmpty { LinkList(links: links) }
+                if tables.isEmpty && summaries.isEmpty && links.isEmpty && !page.text.isEmpty {
                     Text(String(page.text.prefix(1200)))
                         .font(.system(size: 14, design: .rounded))
                         .foregroundColor(.white.opacity(0.85))
