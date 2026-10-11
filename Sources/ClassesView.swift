@@ -133,7 +133,7 @@ struct NowCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(18)
-            .glowCard(18)
+            .glowCard(radius: 18)
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
         }
     }
