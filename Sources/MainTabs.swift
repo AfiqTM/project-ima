@@ -41,7 +41,7 @@ struct MainTabs: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom) { FloatingTabBar(selection: $tab) }
+        .safeAreaInset(edge: .bottom, spacing: 0) { AppTabBar(selection: $tab) }
         .onChange(of: tab) { newValue in visited.insert(newValue) }
     }
 
@@ -57,43 +57,43 @@ struct MainTabs: View {
     }
 }
 
-struct FloatingTabBar: View {
+// Flat, full-width bar: pure black, hairline on top, accent line above the selected tab.
+struct AppTabBar: View {
     @Binding var selection: AppTab
 
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(AppTab.allCases) { tab in
-                let selected = selection == tab
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) { selection = tab }
-                } label: {
-                    VStack(spacing: 3) {
-                        Image(systemName: tab.icon).font(.system(size: 19, weight: .semibold))
-                        Text(tab.title)
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
+        VStack(spacing: 0) {
+            Hairline()
+            HStack(spacing: 0) {
+                ForEach(AppTab.allCases) { tab in
+                    let selected = selection == tab
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        selection = tab
+                    } label: {
+                        VStack(spacing: 4) {
+                            Rectangle()
+                                .fill(selected ? Theme.accent : Color.clear)
+                                .frame(width: 22, height: 2)
+                                .clipShape(Capsule())
+                            Image(systemName: tab.icon).font(.system(size: 18, weight: .semibold))
+                            Text(tab.title)
+                                .font(.system(size: 10, weight: .semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                        }
+                        .foregroundColor(selected ? Theme.accent : Theme.muted)
+                        .frame(maxWidth: .infinity)
+                        .padding(.bottom, 4)
+                        .contentShape(Rectangle())
                     }
-                    .foregroundColor(selected ? Color.black : Color.white.opacity(0.55))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 9)
-                    .background(Capsule().fill(selected ? Theme.accent : Color.clear))
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(tab.title)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(tab.title)
             }
+            .padding(.top, 6)
         }
-        .padding(6)
-        .background(Capsule().fill(Color(white: 0.07)))
-        .overlay(
-            Capsule().strokeBorder(
-                LinearGradient(colors: [Color.white.opacity(0.28), Color.white.opacity(0.05), Theme.accent.opacity(0.4)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing),
-                lineWidth: 1)
-        )
-        .padding(.horizontal, 16)
-        .padding(.bottom, 4)
+        .background(Theme.bg.ignoresSafeArea(edges: .bottom))
     }
 }
 
@@ -109,45 +109,49 @@ struct LoginView: View {
     @ObservedObject private var session = WebSession.shared
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 16) {
             VStack(spacing: 4) {
                 Text("i-Ma'luum")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundColor(Theme.txt)
                 Text("Sign in with your IIUM account")
-                    .font(.system(size: 15, design: .rounded))
-                    .foregroundColor(Theme.accentSoft)
+                    .font(.system(size: 14))
+                    .foregroundColor(Theme.muted)
             }
             .padding(.top, 8)
 
             WebContainer(webView: session.loginWebView)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .strokeBorder(Theme.accent.opacity(0.5), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Theme.line, lineWidth: 1))
                 .padding(.horizontal, 16)
 
             Button {
                 session.state = .demo
             } label: {
                 Text("Explore with demo data")
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundColor(Theme.accentSoft)
-                    .padding(.vertical, 8)
             }
+            .buttonStyle(AccentButtonStyle(filled: false))
+            .padding(.bottom, 8)
         }
-        .amoled()
+        .screenBackground()
         .onAppear { session.startLogin() }
     }
 }
 
-// MARK: - In-app browser (shares the login cookies)
+// MARK: - In-app browser (shares the login cookies, dark CSS injected)
 
 struct SimpleWebView: UIViewRepresentable {
     let url: URL
     func makeUIView(context: Context) -> WKWebView {
         let cfg = WKWebViewConfiguration()
         cfg.websiteDataStore = .default()
+        cfg.userContentController.addUserScript(
+            WKUserScript(source: WebTheme.js, injectionTime: .atDocumentStart, forMainFrameOnly: false))
         let w = WKWebView(frame: .zero, configuration: cfg)
+        w.isOpaque = false
+        w.backgroundColor = .black
+        w.scrollView.backgroundColor = .black
         w.load(URLRequest(url: url))
         return w
     }
@@ -161,14 +165,20 @@ struct WebSheet: View {
     var body: some View {
         NavigationStack {
             SimpleWebView(url: url)
+                .background(Theme.bg)
                 .ignoresSafeArea(edges: .bottom)
                 .navigationTitle("i-Ma'luum")
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(Theme.bg, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+                .toolbarColorScheme(.dark, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button("Done") { dismiss() }
+                            .foregroundColor(Theme.accent)
                     }
                 }
         }
+        .preferredColorScheme(.dark)
     }
 }
