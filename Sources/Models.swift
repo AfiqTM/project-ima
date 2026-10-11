@@ -5,6 +5,7 @@ import Foundation
 struct WebRow: Codable, Hashable {
     let cells: [String]
     let href: String?
+    var lines: [[String]]? = nil   // each cell split into its visual lines
 }
 
 struct WebTable: Codable, Identifiable, Hashable {
@@ -264,5 +265,52 @@ extension URL {
         guard host?.hasSuffix("imaluum.iium.edu.my") == true else { return false }
         let ext = pathExtension.lowercased()
         return !["pdf", "doc", "docx", "xls", "xlsx", "zip", "png", "jpg", "jpeg"].contains(ext)
+    }
+}
+
+
+// MARK: - Result summary (GPA / CGPA box)
+
+struct SummaryPair: Identifiable, Hashable {
+    let id = UUID()
+    let label: String
+    let value: String
+}
+
+enum SummaryParser {
+    static let knownLabels = [
+        "Total Credit Points", "Total Credit Hours", "Grade Point Average (GPA)", "Status", "Remarks",
+        "Cumulative Grade Points", "Cumulative Credit Hours", "Cumulative GPA (CGPA)"
+    ]
+
+    /// Recognises a row laid out as [labels][values][labels][values] and returns the label/value pairs per block.
+    static func parse(_ row: WebRow) -> [[SummaryPair]]? {
+        let idxs = row.cells.indices.filter { !row.cells[$0].isEmpty }
+        guard idxs.count >= 2, idxs.count % 2 == 0 else { return nil }
+        var blocks: [[SummaryPair]] = []
+        var i = 0
+        while i < idxs.count {
+            let li = idxs[i], vi = idxs[i + 1]
+            let ll = (row.lines != nil && li < row.lines!.count) ? row.lines![li] : nil
+            let vl = (row.lines != nil && vi < row.lines!.count) ? row.lines![vi] : nil
+            guard let pairs = pairUp(labelCell: row.cells[li], valueCell: row.cells[vi], labelLines: ll, valueLines: vl) else { return nil }
+            blocks.append(pairs)
+            i += 2
+        }
+        return blocks
+    }
+
+    private static func pairUp(labelCell: String, valueCell: String, labelLines: [String]?, valueLines: [String]?) -> [SummaryPair]? {
+        if let l = labelLines, let v = valueLines, l.count == v.count, l.count >= 2 {
+            return zip(l, v).map { SummaryPair(label: $0, value: $1) }
+        }
+        // Fallback when line breaks were lost: find the known labels in order and split the values on spaces.
+        let found = knownLabels.compactMap { name -> (Int, String)? in
+            guard let r = labelCell.range(of: name) else { return nil }
+            return (labelCell.distance(from: labelCell.startIndex, to: r.lowerBound), name)
+        }.sorted { $0.0 < $1.0 }
+        let tokens = valueCell.split(separator: " ").map(String.init)
+        guard found.count >= 2, found.count == tokens.count else { return nil }
+        return zip(found, tokens).map { SummaryPair(label: $0.1, value: $1) }
     }
 }
