@@ -167,9 +167,17 @@ struct PageContent: View {
                 SessionPill(links: page.dropdown) { url in
                     Task { await vm.load(url: url) }
                 }
-                ForEach(page.tables) { t in DataTable(table: t) }
+                let summaries = page.tables.flatMap { $0.rows }.compactMap { SummaryParser.parse($0) }
+                let tables = page.tables.compactMap { t -> WebTable? in
+                    let rows = t.rows.filter { SummaryParser.parse($0) == nil }
+                    if rows.isEmpty { return nil }
+                    if rows.count < t.rows.count && rows.count <= 1 { return nil }
+                    return WebTable(id: t.id, title: t.title, rows: rows)
+                }
+                ForEach(summaries.indices, id: \.self) { SummaryCard(blocks: summaries[$0]) }
+                ForEach(tables) { t in DataTable(table: t) }
                 if !page.links.isEmpty { LinkList(links: page.links) }
-                if page.tables.isEmpty && page.links.isEmpty && !page.text.isEmpty {
+                if tables.isEmpty && summaries.isEmpty && page.links.isEmpty && !page.text.isEmpty {
                     Text(String(page.text.prefix(1200)))
                         .font(.system(size: 14, design: .rounded))
                         .foregroundColor(.white.opacity(0.85))
@@ -369,5 +377,69 @@ struct LinkRow: View {
                 .buttonStyle(.plain)
                 .sheet(isPresented: $showWeb) { WebSheet(url: url) }
         }
+    }
+}
+
+
+// MARK: - GPA / CGPA summary box
+
+struct SummaryCard: View {
+    let blocks: [[SummaryPair]]
+
+    private func isCGPA(_ p: SummaryPair) -> Bool { p.label.lowercased().contains("cgpa") }
+    private func isGPA(_ p: SummaryPair) -> Bool {
+        let l = p.label.lowercased()
+        return l.contains("gpa") && !l.contains("cgpa") && !l.contains("cumulative")
+    }
+
+    private func hero(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundColor(Theme.accentSoft)
+            Text(value)
+                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.accent.opacity(0.16)))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.accent.opacity(0.45), lineWidth: 1))
+    }
+
+    private func detail(_ p: SummaryPair) -> some View {
+        let v = p.value.uppercased()
+        let color: Color = v == "PASS" ? Theme.success : (v == "FAIL" ? Color(hex: 0xFF6B6B) : Color.white)
+        return HStack(alignment: .firstTextBaseline) {
+            Text(p.label)
+                .font(.system(size: 14, design: .rounded))
+                .foregroundColor(Theme.textSecondary)
+            Spacer(minLength: 12)
+            Text(p.value)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundColor(color)
+        }
+    }
+
+    var body: some View {
+        let all = blocks.flatMap { $0 }
+        let gpa = all.first { isGPA($0) }
+        let cgpa = all.first { isCGPA($0) }
+        VStack(alignment: .leading, spacing: 14) {
+            if gpa != nil || cgpa != nil {
+                HStack(spacing: 12) {
+                    if let g = gpa { hero("GPA", g.value) }
+                    if let c = cgpa { hero("CGPA", c.value) }
+                }
+            }
+            ForEach(blocks.indices, id: \.self) { b in
+                if b > 0 { Divider().overlay(Color.white.opacity(0.12)) }
+                VStack(spacing: 9) {
+                    ForEach(blocks[b].filter { !isGPA($0) && !isCGPA($0) }) { detail($0) }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard(22)
     }
 }
