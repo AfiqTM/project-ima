@@ -13,39 +13,43 @@ struct ClassesView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                NowCard(classes: classes, loading: vm.isLoading && vm.page == nil)
-
-                ScreenHeader(title: "My Class Timetable", subtitle: vm.page?.heading)
-
-                SessionPill(links: vm.page?.dropdown ?? []) { url in
-                    Task { await vm.load(url: url) }
+                HStack(alignment: .top) {
+                    PageTitle(title: "Timetable", subtitle: vm.page?.heading)
+                    SessionMenu(links: vm.page?.dropdown ?? []) { url in
+                        Task { await vm.load(url: url) }
+                    }
+                    .padding(.top, 6)
                 }
+
+                NowCard(classes: classes, loading: vm.isLoading && vm.page == nil)
 
                 DayPicker(selected: $day, classes: classes)
 
                 dayList
 
-                if vm.isOffline { OfflineBanner() }
+                if vm.isOffline { OfflineNotice() }
+
                 if let page = vm.page, classes.isEmpty, !vm.isLoading {
                     VStack(alignment: .leading, spacing: 10) {
                         Label("Page loaded, but no timetable was found", systemImage: "questionmark.circle.fill")
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                            .foregroundColor(Theme.accentSoft)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(Theme.accent)
                         Text("Tables found: \(page.tables.count). What the app can see:")
-                            .font(.system(size: 12)).foregroundColor(Theme.textSecondary)
+                            .font(.system(size: 12)).foregroundColor(Theme.muted)
                         Text(String(page.text.prefix(350)))
                             .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.8))
+                            .foregroundColor(Theme.txt.opacity(0.8))
                         Button("Open full page") { showWeb = true }
-                            .buttonStyle(.bordered).tint(Theme.accent)
+                            .buttonStyle(AccentButtonStyle(filled: false))
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .glassCard(18)
+                    .card(16)
                 }
+
                 if let e = vm.errorMessage {
-                    ErrorCard(message: e,
-                              retry: { Task { await vm.load() } },
-                              openWeb: { showWeb = true })
+                    ErrorPanel(message: e,
+                               retry: { Task { await vm.load() } },
+                               openWeb: { showWeb = true })
                 }
             }
             .padding(.horizontal, 20)
@@ -54,7 +58,7 @@ struct ClassesView: View {
         }
         .refreshable { await vm.load() }
         .task { await vm.load() }
-        .amoled()
+        .screenBackground()
         .sheet(isPresented: $showWeb) { WebSheet(url: Endpoints.schedule) }
     }
 
@@ -63,23 +67,24 @@ struct ClassesView: View {
         let items = classes.filter { $0.day == day }.sorted { $0.start < $1.start }
         if items.isEmpty {
             VStack(spacing: 10) {
-                Image(systemName: "moon.stars.fill")
-                    .font(.system(size: 28))
+                Image(systemName: "moon.stars")
+                    .font(.system(size: 26))
                     .foregroundColor(Theme.accent)
                 Text("No classes on \(day.full)")
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(Theme.muted)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 18)
-            .glassCard()
+            .card(14, padding: 28)
         } else {
-            ForEach(items) { ClassCard(item: $0) }
+            VStack(spacing: 12) {
+                ForEach(items) { ClassCard(item: $0) }
+            }
         }
     }
 }
 
-// MARK: - Now card
+// MARK: - Now card (hero, the only card with the glow)
 
 struct NowCard: View {
     let classes: [ClassSession]
@@ -91,47 +96,45 @@ struct NowCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(current != nil ? Theme.success : Color.white.opacity(0.35))
-                        .frame(width: 8, height: 8)
-                    Text(current != nil ? "Happening now" : "Right now")
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundColor(Theme.accentSoft)
+                        .fill(current != nil ? Theme.good : Theme.muted.opacity(0.6))
+                        .frame(width: 7, height: 7)
+                    SectionLabel(current != nil ? "Happening now" : "Free right now")
                     Spacer()
                 }
 
                 if let c = current {
-                    HStack(spacing: 10) {
-                        CodePill(text: c.code)
-                        Text(c.name)
-                            .font(.system(size: 17, weight: .semibold, design: .rounded))
-                            .foregroundColor(.white)
-                            .lineLimit(2)
-                    }
-                    Label(c.venue, systemImage: "mappin.and.ellipse")
-                        .font(.system(size: 15, design: .rounded))
-                        .foregroundColor(.white.opacity(0.9))
-                    Label(c.timeText, systemImage: "clock")
-                        .font(.system(size: 15, weight: .medium, design: .rounded))
-                        .foregroundColor(.white.opacity(0.9))
+                    CodeTag(text: c.code)
+                    Text(c.name)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(Theme.txt)
+                        .lineLimit(2)
+                    InfoRow(icon: "mappin.and.ellipse", text: c.venue)
+                    InfoRow(icon: "clock", text: c.timeText)
                     progress(c, now: ctx.date)
                 } else if loading {
                     Text("Loading your timetable…")
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .foregroundColor(.white)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(Theme.muted)
+                } else if let n = ClassSession.next(in: classes, at: ctx.date) {
+                    let when = ClassSession.dayLabel(offset: n.dayOffset, from: ctx.date)
+                    Text("Next up")
+                        .font(.system(size: 13)).foregroundColor(Theme.muted)
+                    CodeTag(text: n.session.code)
+                    Text(n.session.name)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(Theme.txt)
+                        .lineLimit(2)
+                    InfoRow(icon: "clock", text: "\(when), \(ClassSession.format(n.session.start))")
                 } else {
                     Text("No classes right now")
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                    if let n = ClassSession.next(in: classes, at: ctx.date) {
-                        let when = ClassSession.dayLabel(offset: n.dayOffset, from: ctx.date)
-                        Text("Next: \(n.session.code) · \(when), \(ClassSession.format(n.session.start))")
-                            .font(.system(size: 14, design: .rounded))
-                            .foregroundColor(Theme.textSecondary)
-                    }
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(Theme.txt)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassCard(26)
+            .padding(18)
+            .glowCard(18)
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
         }
     }
 
@@ -140,11 +143,12 @@ struct NowCard: View {
         let done = min(1, max(0, Double(ClassSession.nowMinutes(now) - c.start) / Double(total)))
         return GeometryReader { g in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.10))
-                Capsule().fill(Theme.pillGradient).frame(width: g.size.width * done)
+                Capsule().fill(Theme.line)
+                Capsule().fill(Theme.accent).frame(width: g.size.width * done)
             }
         }
-        .frame(height: 5)
+        .frame(height: 4)
+        .padding(.top, 2)
     }
 }
 
@@ -160,25 +164,25 @@ struct DayPicker: View {
                 let isSel = d == selected
                 let count = classes.filter { $0.day == d }.count
                 Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { selected = d }
+                    withAnimation(.easeOut(duration: 0.15)) { selected = d }
                 } label: {
-                    VStack(spacing: 4) {
+                    VStack(spacing: 5) {
                         Text(d.short)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .font(.system(size: 12, weight: .semibold))
                         Circle()
-                            .fill(count > 0 ? (isSel ? Color.black.opacity(0.55) : Theme.accent) : Color.clear)
-                            .frame(width: 5, height: 5)
+                            .fill(count > 0 ? (isSel ? Color.black.opacity(0.6) : Theme.accent) : Color.clear)
+                            .frame(width: 4, height: 4)
                     }
-                    .foregroundColor(isSel ? Color.black : Color.white.opacity(0.8))
+                    .foregroundColor(isSel ? Color.black : (d == Weekday.today ? Theme.accent : Theme.muted))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
                     .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(isSel ? Theme.accent : Color.white.opacity(0.06))
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(isSel ? Theme.accent : Theme.surface)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(d == Weekday.today ? Theme.accentSoft.opacity(0.7) : Color.clear, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(isSel ? Color.clear : Theme.line, lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)
@@ -187,48 +191,56 @@ struct DayPicker: View {
     }
 }
 
-// MARK: - Class card (mirrors the reference design)
+// MARK: - Class card (agenda row: time on the left, details on the right)
 
 struct ClassCard: View {
     let item: ClassSession
 
-    private var statusColor: Color {
-        item.status.lowercased().contains("registered") ? Theme.success : Color.white.opacity(0.7)
-    }
+    private var registered: Bool { item.status.lowercased().contains("registered") }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                CodePill(text: item.code)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(ClassSession.format(item.start))
+                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                    .foregroundColor(Theme.txt)
+                Text(ClassSession.format(item.end))
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundColor(Theme.muted)
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .frame(width: 68, alignment: .trailing)
+            .padding(.top, 16)
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    CodeTag(text: item.code)
+                    Spacer(minLength: 0)
+                    if !item.status.isEmpty {
+                        Text(item.status)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(registered ? Theme.good : Theme.muted)
+                    }
+                }
                 Text(item.name)
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(Theme.txt)
                     .lineLimit(2)
+
+                InfoRow(icon: "mappin.and.ellipse", text: item.venue)
+                if !item.lecturer.isEmpty {
+                    InfoRow(icon: "person.fill", text: item.lecturer.capitalized, color: Theme.muted)
+                }
+
+                Hairline()
+
+                Text("Section \(item.section)  ·  \(item.credit) credit hrs  ·  \(item.dayRaw)")
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.muted)
             }
-
-            HStack(spacing: 6) {
-                Image(systemName: "person.2.fill").foregroundColor(Theme.textSecondary)
-                Text("Sect: \(item.section)  |  Chr: \(item.credit)")
-                    .foregroundColor(.white.opacity(0.9))
-                Text("•  \(item.status)").foregroundColor(statusColor)
-            }
-            .font(.system(size: 13, design: .rounded))
-
-            Label("\(item.dayRaw)  |  \(item.timeText)", systemImage: "clock")
-                .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundColor(.white.opacity(0.9))
-
-            Label(item.venue, systemImage: "mappin.and.ellipse")
-                .font(.system(size: 13, design: .rounded))
-                .foregroundColor(.white.opacity(0.9))
-
-            Divider().overlay(Color.white.opacity(0.12))
-
-            Label(item.lecturer, systemImage: "person.fill")
-                .font(.system(size: 12, weight: .medium, design: .rounded))
-                .foregroundColor(Theme.accentSoft)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .card(14)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
     }
 }
